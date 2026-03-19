@@ -1,31 +1,43 @@
-const express = require('express');
-const bodyParser = require('body-parser');
-const TelegramBot = require('node-telegram-bot-api');
-const axios = require('axios');
-const TOKEN = process.env.TELEGRAM_TOKEN;
-const API_URL = process.env.API_URL || 'https://api.alfateh.cloudtech-it.com';
-const PORT = process.env.PORT || 5000;
-//const webhookUrl = process.env.WEBHOOK_URL;
-const bot = new TelegramBot(TOKEN, { polling: false });
-const app = express();
+// =========================
+const octetsToGB = (octets = 0) => {
+  if (!octets) return 0;
+  return octets / 1024 / 1024 / 1024;
+};
 
-app.use(bodyParser.json());
+const percentBar = (percent) => {
+  const total = 10;
+  const filled = Math.round((percent / 100) * total);
+  return '█'.repeat(filled) + '░'.repeat(total - filled);
+};
 
+// =========================
+// 📊 CALCULATE USAGE
+// =========================
+function calculateUsage(subscription) {
+  const downloadGB = octetsToGB(subscription.currentInputOctets);
+  const uploadGB = octetsToGB(subscription.currentOutputOctets);
 
+  const usedGB = downloadGB + uploadGB;
 
-// استقبال التحديثات من Telegram عبر Webhook
-app.post(`/webhook/${TOKEN}`, (req, res) => {
-  bot.processUpdate(req.body);
-  res.sendStatus(200);
-});
-// ✅ Route test
-app.get('/', (req, res) => {
-  res.send('Bot is running ✅');
-});
+  const totalGB =
+    octetsToGB(subscription.downloadLimit) +
+    octetsToGB(subscription.uploadLimit);
 
-// 🔥 جلسات المستخدمين
-const sessions = new Map();
-// 🧠دالة جلب بيانات المستخدم
+  const remainingGB = totalGB - usedGB;
+
+  const percent = totalGB > 0 ? (usedGB / totalGB) * 100 : 0;
+
+  return {
+    usedGB: usedGB.toFixed(2),
+    totalGB: totalGB.toFixed(2),
+    remainingGB: remainingGB.toFixed(2),
+    percent: percent.toFixed(1)
+  };
+}
+
+// =========================
+// 🌐 API HELPERS
+// =========================
 async function getUserInfo(token) {
   try {
     const profile = await axios.get(`${API_URL}/api/customers/me`, {
@@ -42,26 +54,25 @@ async function getUserInfo(token) {
         ? `${accounts.data[0].balance} ${accounts.data[0].currency}`
         : '—'
     };
-
-  } catch (err) {
-    return {
-      fullName: 'غير معروف',
-      balance: '—'
-    };
+  } catch {
+    return { fullName: 'غير معروف', balance: '—' };
   }
 }
-// 🧠 دالة عرض القائمة الرئيسية
+
+// =========================
+// 🧾 MAIN MENU
+// =========================
 async function showMainMenu(chatId, session) {
   const user = await getUserInfo(session.token);
 
-  const header = `
+  const msg = `
 📡 *ALFATEH ISP*
 
 👤 ${user.fullName}
 💰 الرصيد: ${user.balance}
 `;
 
-  bot.sendMessage(chatId, header + '\n📊 اختر الخدمة:', {
+  return bot.sendMessage(chatId, msg, {
     parse_mode: 'Markdown',
     reply_markup: {
       keyboard: [
@@ -76,257 +87,207 @@ async function showMainMenu(chatId, session) {
   });
 }
 
-// 📩 استقبال الرسائل
+// =========================
+// 📩 MESSAGE HANDLER
+// =========================
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
 
   if (!sessions.has(chatId)) {
-    sessions.set(chatId, { step: null });
+    sessions.set(chatId, {});
   }
 
   const session = sessions.get(chatId);
 
-  // ========= START =========
+  // =========================
+  // START
+  // =========================
   if (text === '/start') {
-    session.step = 'start';
+    session.step = null;
 
-    return bot.sendMessage(chatId, '👋 أهلاً بك في مزود الفتح\n\nاضغط تسجيل الدخول للمتابعة', {
+    return bot.sendMessage(chatId, '👋 أهلاً بك', {
       reply_markup: {
-        keyboard: [[{ text: '🔐 تسجيل الدخول' }]],
+        keyboard: [['🔐 تسجيل الدخول']],
         resize_keyboard: true
       }
     });
   }
 
-  // ========= LOGIN =========
+  // =========================
+  // LOGIN FLOW
+  // =========================
   if (text === '🔐 تسجيل الدخول') {
-    session.step = 'await_username';
+    session.step = 'username';
     return bot.sendMessage(chatId, '👤 أدخل اسم المستخدم:');
   }
 
-  if (session.step === 'await_username') {
+  if (session.step === 'username') {
     session.username = text;
-    session.step = 'await_password';
+    session.step = 'password';
     return bot.sendMessage(chatId, '🔑 أدخل كلمة المرور:');
   }
 
-  if (session.step === 'await_password') {
-    session.password = text;
-
+  if (session.step === 'password') {
     try {
       const res = await axios.post(`${API_URL}/api/auth/login`, {
         username: session.username,
-        password: session.password,
+        password: text,
         deviceId: chatId.toString()
       });
 
       session.token = res.data.accessToken;
-      session.step = 'dashboard';
+      session.step = 'logged';
 
-      await bot.sendMessage(chatId, '✅ تم تسجيل الدخول بنجاح');
+      await bot.sendMessage(chatId, '✅ تم تسجيل الدخول');
       return showMainMenu(chatId, session);
 
-    } catch (err) {
+    } catch {
       return bot.sendMessage(chatId, '❌ فشل تسجيل الدخول');
     }
   }
 
-  // ========= الحماية =========
+  // =========================
+  // PROTECTION
+  // =========================
   if (!session.token) {
-    return bot.sendMessage(chatId, '⚠️ يجب تسجيل الدخول أولاً /start');
+    return bot.sendMessage(chatId, '⚠️ سجل دخول أولاً /start');
   }
 
-  // ========= الأزرار =========
-
-// =========================
-  
-  // 💰 BALANCE
+  // =========================
+  // BALANCE
   // =========================
   if (text === '💰 الرصيد') {
     const user = await getUserInfo(session.token);
 
     return bot.sendMessage(chatId,
 `👤 ${user.fullName}
-💰  الرصيد: ${user.balance}`);
+💰 ${user.balance}`);
   }
 
   // =========================
-  // 📄 TRANSACTIONS
-  // =========================
-  if (text === '📄 الفواتير') {
-    try {
-      const res = await axios.get(
-        `${API_URL}/api/customers/me/transactions?page=0&size=5`,
-        { headers: { Authorization: `Bearer ${session.token}` } }
-      );
-
-      const list = res.data?.content || [];
-
-      if (!list.length) {
-        return bot.sendMessage(chatId, '📄 لا يوجد فواتير');
-      }
-
-      let msg = '📄 آخر الفواتير:\n\n';
-
-      list.forEach(tx => {
-        const date = new Date(tx.trxDate);
-
-        msg += `🧾 #${tx.trxNo}\n`;
-        msg += `💰 ${tx.amount} ${tx.Currency}\n`;
-        msg += `📅 ${date.toLocaleString()}\n`;
-        msg += `----------------\n`;
-      });
-
-      return bot.sendMessage(chatId, msg);
-
-    } catch {
-      return bot.sendMessage(chatId, '❌ خطأ في جلب الفواتير');
-    }
-  }
-
-  // =========================
-  // 📶 SUBSCRIPTIONS
+  // SUBSCRIPTIONS
   // =========================
   if (text === '📶 الاشتراكات') {
-    try {
-      const res = await axios.get(
-        `${API_URL}/api/customers/me/subscriptions`,
-        { headers: { Authorization: `Bearer ${session.token}` } }
-      );
+    const res = await axios.get(
+      `${API_URL}/api/customers/me/subscriptions`,
+      { headers: { Authorization: `Bearer ${session.token}` } }
+    );
 
-      session.subscriptions = res.data;
+    session.subscriptions = res.data;
 
-      let msg = '📶 الاشتراكات:\n\n';
-
-      res.data.forEach(s => {
-        msg += `📶 ${s.serviceName}\n`;
-        msg += `👤 ${s.username}\n`;
-        msg += `📊 ${s.online ? '🟢' : '🔴'}\n\n`;
-      });
-
-      return bot.sendMessage(chatId, msg);
-
-    } catch {
-      return bot.sendMessage(chatId, '❌ خطأ');
+    // اختيار تلقائي
+    if (!session.selectedSubscriptionId && res.data.length > 0) {
+      session.selectedSubscriptionId = res.data[0].subscriptionId;
     }
+
+    let msg = '📶 الاشتراكات:\n\n';
+
+    res.data.forEach(s => {
+      msg += `📶 ${s.serviceName}\n`;
+      msg += `👤 ${s.username}\n`;
+      msg += `📊 ${s.online ? '🟢' : '🔴'}\n\n`;
+    });
+
+    return bot.sendMessage(chatId, msg);
   }
 
   // =========================
-  // 📊 USAGE
+  // USAGE
   // =========================
   if (text === '📊 استهلاك الباقة') {
-    const s = session.subscriptions?.[0];
+    const subId = session.selectedSubscriptionId;
 
-    if (!s) return bot.sendMessage(chatId, '❌ لا يوجد اشتراك');
+    if (!subId) {
+      return bot.sendMessage(chatId, '❌ اختر اشتراك أولاً');
+    }
 
-    const used = toGB(s.currentInputOctets + s.currentOutputOctets);
-    const total = toGB(s.downloadLimit + s.uploadLimit);
-    const remaining = total - used;
+    const res = await axios.get(
+      `${API_URL}/api/customers/me/subscriptions`,
+      { headers: { Authorization: `Bearer ${session.token}` } }
+    );
+
+    const sub = res.data.find(s => s.subscriptionId == subId);
+
+    if (!sub) return bot.sendMessage(chatId, '❌ اشتراك غير موجود');
+
+    const usage = calculateUsage(sub);
 
     return bot.sendMessage(chatId,
-`📊 الاستخدام
+`📊 استهلاك الباقة
 
-⬇️ ${used} GB
-📦 ${total} GB
-🔋 ${remaining} GB`);
+⬇️ ${usage.usedGB} GB
+📦 ${usage.totalGB} GB
+🔋 ${usage.remainingGB} GB
+📉 ${percentBar(usage.percent)} ${usage.percent}%`);
   }
 
   // =========================
-  // 📡 STATUS
+  // STATUS
   // =========================
   if (text === '📡 حالة الاتصال') {
-    const s = session.subscriptions?.[0];
+    const subId = session.selectedSubscriptionId;
 
-    if (!s) return bot.sendMessage(chatId, '❌ لا يوجد اشتراك');
+    if (!subId) return bot.sendMessage(chatId, '❌ اختر اشتراك');
 
-    return bot.sendMessage(chatId,
-`📡 الحالة
-
-${s.online ? '🟢 متصل' : '🔴 غير متصل'}`);
+    return bot.sendMessage(chatId, `📡 ${subId}`);
   }
 
   // =========================
-  // 🔄 EXTEND
+  // EXTEND
   // =========================
   if (text === '🔄 تمديد الاشتراك') {
-    const s = session.subscriptions?.[0];
+    const subId = session.selectedSubscriptionId;
 
-    if (!s) return bot.sendMessage(chatId, '❌ لا يوجد اشتراك');
+    if (!subId) return bot.sendMessage(chatId, '❌ اختر اشتراك');
 
-    try {
-      await axios.put(
-        `${API_URL}/api/services/extend-expiry/${s.subscriptionId}`,
-        {},
-        { headers: { Authorization: `Bearer ${session.token}` } }
-      );
+    await axios.put(
+      `${API_URL}/api/services/extend-expiry/${subId}`,
+      {},
+      { headers: { Authorization: `Bearer ${session.token}` } }
+    );
 
-      return bot.sendMessage(chatId, '✅ تم التمديد');
-
-    } catch {
-      return bot.sendMessage(chatId, '❌ فشل التمديد');
-    }
+    return bot.sendMessage(chatId, '✅ تم التمديد');
   }
 
   // =========================
-  // 📦 CHARGE
+  // CHARGE
   // =========================
   if (text === '📦 شحن باقة') {
-    const s = session.subscriptions?.[0];
+    const subId = session.selectedSubscriptionId;
 
-    if (!s) return bot.sendMessage(chatId, '❌ لا يوجد اشتراك');
+    if (!subId) return bot.sendMessage(chatId, '❌ اختر اشتراك');
 
-    try {
-      const serviceTypeId = 1; // مثال
+    const serviceTypeId = 1;
 
-      await axios.post(
-        `${API_URL}/api/services/charge-service-type/${s.subscriptionId}/${serviceTypeId}`,
-        {},
-        { headers: { Authorization: `Bearer ${session.token}` } }
-      );
+    await axios.post(
+      `${API_URL}/api/services/charge-service-type/${subId}/${serviceTypeId}`,
+      {},
+      { headers: { Authorization: `Bearer ${session.token}` } }
+    );
 
-      return bot.sendMessage(chatId, '✅ تم الشحن');
-
-    } catch {
-      return bot.sendMessage(chatId, '❌ فشل الشحن');
-    }
+    return bot.sendMessage(chatId, '✅ تم الشحن');
   }
-  // ☎️ الدعم الفني
+
+  // =========================
+  // SUPPORT
+  // =========================
   if (text === '☎️ الدعم الفني') {
-    return bot.sendMessage(chatId, `
-☎️ الدعم الفني:
-
-📞 099999999
-📞 098888888
-
-🕐 متاح 24/7
-`);
-    
+    return bot.sendMessage(chatId, '📞 099999999');
   }
 
-  // 💳 طرق الدفع
+  // =========================
+  // PAY
+  // =========================
   if (text === '💳 طرق الدفع') {
-    return bot.sendMessage(chatId, `
-💳 طرق الدفع:
-
-1. نقاط البيع
-2. شام كاش
-3. تحويل بنكي
-`);
-    
+    return bot.sendMessage(chatId, '💳 شام كاش / تحويل / نقاط بيع');
   }
-
 });
 
-// تشغيل السيرفر
-app.listen(PORT, async () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-
-  const webhookUrl = `${process.env.RENDER_EXTERNAL_URL}/webhook/${TOKEN}`;
-  try {
-    await bot.setWebHook(webhookUrl);
-    console.log(`✅ Webhook set to: ${webhookUrl}`);
-  } catch (err) {
-    console.error("❌ Error setting webhook:", err.message);
-  }
+// =========================
+// 🌐 WEBHOOK
+// =========================
+app.post(`/webhook/${TOKEN}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
 });
