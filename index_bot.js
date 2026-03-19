@@ -1,6 +1,6 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const TelegramBot = require('node-telegram-bot-api');
+const TelegramBot = require('alfatehisp-boot-telegram');
 const axios = require('axios');
 
 const TOKEN = process.env.TELEGRAM_TOKEN;
