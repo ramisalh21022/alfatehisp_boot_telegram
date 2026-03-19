@@ -5,17 +5,21 @@ const axios = require('axios');
 const TOKEN = process.env.TELEGRAM_TOKEN;
 const API_URL = process.env.API_URL || 'https://api.alfateh.cloudtech-it.com';
 const PORT = process.env.PORT || 5000;
-
+const webhookUrl = process.env.WEBHOOK_URL;
 const bot = new TelegramBot(TOKEN, { polling: false });
-const webhookUrl = `https://alfatehisp-boot-telegram.onrender.com/webhook/${TOKEN}`;
+//const webhookUrl = `https://alfatehisp-boot-telegram.onrender.com/webhook/${TOKEN}`;
 const app = express();
+
 app.use(bodyParser.json());
 
-app.post(`/webhookUrl/${TOKEN}`, (req, res) => {
+app.post(`/webhook/${TOKEN}`, (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
-
+// ✅ Route test
+app.get('/', (req, res) => {
+  res.send('Bot is running ✅');
+});
 
 // 🔥 جلسات المستخدمين
 const sessions = new Map();
@@ -202,15 +206,17 @@ bot.on('message', async (msg) => {
 
 });
 
-// تشغيل السيرفر
+// ✅ تشغيل السيرفر
 app.listen(PORT, async () => {
   console.log(`🚀 Server running on port ${PORT}`);
-
-  const webhookUrl = `${process.env.RENDER_EXTERNAL_URL}/webhook/${TOKEN}`;
+  console.log("Webhook URL:", webhookUrl);
 
   try {
+    await bot.deleteWebHook();
+
     await bot.setWebHook(webhookUrl);
-    console.log(`✅ Webhook set: ${webhookUrl}`);
+
+    console.log("✅ Webhook set successfully");
   } catch (err) {
     console.error("❌ Webhook error:", err.message);
   }
