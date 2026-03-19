@@ -7,7 +7,6 @@ const API_URL = process.env.API_URL || 'https://api.alfateh.cloudtech-it.com';
 const PORT = process.env.PORT || 5000;
 const webhookUrl = process.env.WEBHOOK_URL;
 const bot = new TelegramBot(TOKEN, { polling: false });
-//const webhookUrl = `https://alfatehisp-boot-telegram.onrender.com/webhook/${TOKEN}`;
 const app = express();
 
 app.use(bodyParser.json());
