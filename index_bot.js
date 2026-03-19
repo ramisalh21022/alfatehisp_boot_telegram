@@ -15,7 +15,7 @@ const PORT = process.env.PORT || 5000;
 
 const bot = new TelegramBot(TOKEN, { polling: false });
 const app = express();
-const LOGO_URL = 'https://github.com/ramisalh21022/alfatehisp_boot_telegram/blob/main/alfateh.png';
+const LOGO_URL = https://raw.githubusercontent.com/ramisalh21022/alfatehisp_boot_telegram/main/alfateh.png';
 
 app.use(bodyParser.json());
 
@@ -102,29 +102,38 @@ async function getUserInfo(token) {
 async function showMainMenu(chatId, session) {
   const user = await getUserInfo(session.token);
 
-  return bot.sendMessage(chatId, `
+ await bot.sendPhoto(chatId,
+  'https://raw.githubusercontent.com/ramisalh21022/alfatehisp_boot_telegram/main/alfateh.png',
+  {
+    caption: `
 ╔══════════════════════╗
    🌐 *ALFATEH ISP*
 ╚══════════════════════╝
 
-👤 *${user.fullName}*
-💰 *${user.balance}*
+👋 أهلاً بك في مزود الفتح
 
-━━━━━━━━━━━━━━━━
-📊 اختر الخدمة:
-`, {
+📍 العنوان:
+دمشق - سوريا
+
+🏪 نقاط البيع:
+• مركز المدينة
+• المزة
+
+📞 التواصل:
+099999999
+098888888
+`,
     parse_mode: 'Markdown',
     reply_markup: {
       keyboard: [
-        ['💰 الرصيد', '📄 الفواتير'],
-        ['📶 الاشتراكات', '📡 حالة الاتصال'],
-        ['🔄 تمديد الاشتراك', '📦 شحن باقة'],
-        ['📊 استهلاك الباقة'],
-        ['☎️ الدعم الفني', '💳 طرق الدفع']
+        ['🔐 تسجيل الدخول'],
+        ['🆔 طلب الرقم الوطني'],
+        ['🌐 العربية', '🌐 English']
       ],
       resize_keyboard: true
     }
-  });
+  }
+);
 }
 
 // =========================
