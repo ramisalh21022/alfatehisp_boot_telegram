@@ -15,7 +15,7 @@ const PORT = process.env.PORT || 5000;
 
 const bot = new TelegramBot(TOKEN, { polling: false });
 const app = express();
-const LOGO_URL = https://raw.githubusercontent.com/ramisalh21022/alfatehisp_boot_telegram/main/alfateh.png';
+
 
 app.use(bodyParser.json());
 
