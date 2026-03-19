@@ -301,7 +301,7 @@ ${s.online ? '🟢 متصل' : '🔴 غير متصل'}`);
 
 🕐 متاح 24/7
 `);
-    return showMainMenu(chatId, session);
+    
   }
 
   // 💳 طرق الدفع
@@ -313,7 +313,7 @@ ${s.online ? '🟢 متصل' : '🔴 غير متصل'}`);
 2. شام كاش
 3. تحويل بنكي
 `);
-    return showMainMenu(chatId, session);
+    
   }
 
 });
