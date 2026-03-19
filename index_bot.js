@@ -315,7 +315,7 @@ bot.on('message', async (msg) => {
       return bot.sendMessage(chatId, '❌ فشل');
     }
   }
-});
+
  // ☎️ الدعم الفني
   if (text === '☎️ الدعم الفني') {
     return bot.sendMessage(chatId, `
