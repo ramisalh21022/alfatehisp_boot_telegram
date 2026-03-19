@@ -11,7 +11,7 @@ const app = express();
 
 app.use(bodyParser.json());
 
-app.post(`/webhook/${TOKEN}`, (req, res) => {
+app.post(`/webhook`, (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
