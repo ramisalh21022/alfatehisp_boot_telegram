@@ -1,48 +1,73 @@
+// =========================
+// 🚀 IMPORTS
+// =========================
 const express = require('express');
 const bodyParser = require('body-parser');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 
+// =========================
+// ⚙️ CONFIG
+// =========================
 const TOKEN = process.env.TELEGRAM_TOKEN;
 const API_URL = process.env.API_URL || 'https://api.alfateh.cloudtech-it.com';
 const PORT = process.env.PORT || 5000;
 
 const bot = new TelegramBot(TOKEN, { polling: false });
 const app = express();
+const LOGO_URL = 'https://your-domain.com/alfateh.png';
 
 app.use(bodyParser.json());
 
 // =========================
-// 🔥 Sessions
+// 🌐 LANGUAGE DICTIONARY
+// =========================
+const LANG = {
+  ar: {
+    welcome: '👋 أهلاً بك في مزود الفتح',
+    login: '🔐 تسجيل الدخول',
+    nationalId: '🆔 طلب الرقم الوطني',
+    address: '📍 العنوان',
+    pos: '🏪 نقاط البيع',
+    contact: '📞 التواصل',
+  },
+  en: {
+    welcome: '👋 Welcome to Alfateh ISP',
+    login: '🔐 Login',
+    nationalId: '🆔 Request National ID',
+    address: '📍 Address',
+    pos: '🏪 Points of Sale',
+    contact: '📞 Contact',
+  }
+};
+
+const t = (session, key) => {
+  const lang = session.lang || 'ar';
+  return LANG[lang][key] || key;
+};
+
+// =========================
+// 🔥 SESSIONS
 // =========================
 const sessions = new Map();
 
 // =========================
-// 📊 Helpers
+// 📊 HELPERS
 // =========================
-const octetsToGB = (octets = 0) => {
-  return octets ? octets / 1024 / 1024 / 1024 : 0;
-};
+const octetsToGB = (octets = 0) =>
+  octets ? octets / 1024 / 1024 / 1024 : 0;
 
-const calculateUsage = (subscription) => {
-  const downloadGB = octetsToGB(subscription.currentInputOctets);
-  const uploadGB = octetsToGB(subscription.currentOutputOctets);
-
-  const usedGB = downloadGB + uploadGB;
-
-  const totalGB =
-    octetsToGB(subscription.downloadLimit) +
-    octetsToGB(subscription.uploadLimit);
-
-  const remainingGB = totalGB - usedGB;
-
-  const percent = totalGB > 0 ? (usedGB / totalGB) * 100 : 0;
+const calculateUsage = (s) => {
+  const used = octetsToGB(s.currentInputOctets) + octetsToGB(s.currentOutputOctets);
+  const total = octetsToGB(s.downloadLimit) + octetsToGB(s.uploadLimit);
+  const remaining = total - used;
+  const percent = total > 0 ? (used / total) * 100 : 0;
 
   return {
-    usedGB: usedGB.toFixed(2),
-    totalGB: totalGB.toFixed(2),
-    remainingGB: remainingGB.toFixed(2),
-    percent: percent.toFixed(1),
+    usedGB: used.toFixed(2),
+    totalGB: total.toFixed(2),
+    remainingGB: remaining.toFixed(2),
+    percent: percent.toFixed(1)
   };
 };
 
@@ -72,19 +97,22 @@ async function getUserInfo(token) {
 }
 
 // =========================
-// 🎛️ Menu
+// 🎛️ MAIN MENU
 // =========================
 async function showMainMenu(chatId, session) {
   const user = await getUserInfo(session.token);
 
-  const msg = `
-📡 *ALFATEH ISP*
+  return bot.sendMessage(chatId, `
+╔══════════════════════╗
+   🌐 *ALFATEH ISP*
+╚══════════════════════╝
 
-👤 ${user.fullName}
-💰 الرصيد: ${user.balance}
-`;
+👤 *${user.fullName}*
+💰 *${user.balance}*
 
-  return bot.sendMessage(chatId, msg, {
+━━━━━━━━━━━━━━━━
+📊 اختر الخدمة:
+`, {
     parse_mode: 'Markdown',
     reply_markup: {
       keyboard: [
@@ -100,52 +128,89 @@ async function showMainMenu(chatId, session) {
 }
 
 // =========================
-// 🔄 CALLBACK (اختياري)
+// 🌐 WEBHOOK
 // =========================
-bot.on('callback_query', (q) => {
-  const chatId = q.message.chat.id;
-  const session = sessions.get(chatId);
-  if (!session) return;
-
-  if (q.data.startsWith('select_sub_')) {
-    session.selectedSubscriptionId = q.data.split('_')[2];
-    bot.sendMessage(chatId, `✅ تم اختيار الاشتراك`);
-  }
+app.post(`/webhook/${TOKEN}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
 });
+
+app.get('/', (_, res) => res.send('Bot running ✅'));
 
 // =========================
 // 📩 MESSAGE HANDLER
 // =========================
 bot.on('message', async (msg) => {
+
   const chatId = msg.chat.id;
   const text = msg.text;
 
   if (!sessions.has(chatId)) {
-    sessions.set(chatId, { step: null });
+    sessions.set(chatId, { step: null, lang: 'ar' });
   }
 
   const session = sessions.get(chatId);
 
-  // ========= START =========
+  // =========================
+  // 🚀 START (V2)
+  // =========================
   if (text === '/start') {
-    return bot.sendMessage(chatId, '👋 أهلاً بك\n\n🔐 تسجيل الدخول', {
+    return bot.sendPhoto(chatId, LOGO_URL, {
+      caption: `
+╔══════════════════════╗
+   🌐 *ALFATEH ISP*
+╚══════════════════════╝
+
+${t(session, 'welcome')}
+
+${t(session, 'address')}:
+دمشق - سوريا
+
+${t(session, 'pos')}:
+• مركز المدينة
+• المزة
+
+${t(session, 'contact')}:
+📞 099999999
+📞 098888888
+`,
+      parse_mode: 'Markdown',
       reply_markup: {
-        keyboard: [[{ text: '🔐 تسجيل الدخول' }]],
+        keyboard: [
+          [t(session, 'login')],
+          [t(session, 'nationalId')],
+          ['🌐 العربية', '🌐 English']
+        ],
         resize_keyboard: true
       }
     });
   }
 
-  // ========= LOGIN =========
-  if (text === '🔐 تسجيل الدخول') {
+  // =========================
+  // 🌐 LANGUAGE
+  // =========================
+  if (text === '🌐 العربية') {
+    session.lang = 'ar';
+    return bot.sendMessage(chatId, '✅ تم التبديل للعربية');
+  }
+
+  if (text === '🌐 English') {
+    session.lang = 'en';
+    return bot.sendMessage(chatId, '✅ Switched to English');
+  }
+
+  // =========================
+  // 🔐 LOGIN
+  // =========================
+  if (text === t(session, 'login')) {
     session.step = 'username';
-    return bot.sendMessage(chatId, '👤 اسم المستخدم:');
+    return bot.sendMessage(chatId, '👤 Username:');
   }
 
   if (session.step === 'username') {
     session.username = text;
     session.step = 'password';
-    return bot.sendMessage(chatId, '🔑 كلمة المرور:');
+    return bot.sendMessage(chatId, '🔑 Password:');
   }
 
   if (session.step === 'password') {
@@ -159,25 +224,43 @@ bot.on('message', async (msg) => {
       session.token = res.data.accessToken;
       session.step = null;
 
-      await bot.sendMessage(chatId, '✅ تم تسجيل الدخول');
+      await bot.sendMessage(chatId, '✅ Login successful');
       return showMainMenu(chatId, session);
 
     } catch {
-      return bot.sendMessage(chatId, '❌ فشل تسجيل الدخول');
+      return bot.sendMessage(chatId, '❌ Login failed');
     }
   }
 
+  // =========================
+  // 🆔 NATIONAL ID
+  // =========================
+  if (text === t(session, 'nationalId')) {
+    session.step = 'national_id';
+    return bot.sendMessage(chatId, '🆔 أدخل الرقم الوطني:');
+  }
+
+  if (session.step === 'national_id') {
+    session.step = null;
+    return bot.sendMessage(chatId, '📩 تم إرسال البيانات');
+  }
+
+  // =========================
+  // 🔒 AUTH GUARD
+  // =========================
   if (!session.token) {
     return bot.sendMessage(chatId, '⚠️ سجل الدخول أولاً');
   }
 
-  // ========= BALANCE =========
+  // =========================
+  // 💰 BALANCE
+  // =========================
   if (text === '💰 الرصيد') {
     const user = await getUserInfo(session.token);
 
     return bot.sendMessage(chatId,
 `👤 ${user.fullName}
-💰  الرصيد: ${user.balance}`);
+💰 ${user.balance}`);
   }
 
   // =========================
@@ -192,33 +275,31 @@ bot.on('message', async (msg) => {
 
       const list = res.data?.content || [];
 
-      if (!list.length) {
-        return bot.sendMessage(chatId, '📄 لا يوجد فواتير');
-      }
-
-      let msg = '📄 آخر الفواتير:\n\n';
+      let msg = '📄 الفواتير:\n\n';
 
       list.forEach(tx => {
-        const date = new Date(tx.trxDate);
-
         msg += `🧾 #${tx.trxNo}\n`;
         msg += `💰 ${tx.amount} ${tx.Currency}\n`;
-        msg += `📅 ${date.toLocaleString()}\n`;
-        msg += `----------------\n`;
+        msg += `📅 ${new Date(tx.trxDate).toLocaleString()}\n`;
+        msg += `━━━━━━━━━━\n`;
       });
 
       return bot.sendMessage(chatId, msg);
 
     } catch {
-      return bot.sendMessage(chatId, '❌ خطأ في جلب الفواتير');
+      return bot.sendMessage(chatId, '❌ خطأ');
     }
   }
-  // ========= SUBSCRIPTIONS =========
+
+  // =========================
+  // 📶 SUBSCRIPTIONS
+  // =========================
   if (text === '📶 الاشتراكات') {
     try {
-      const res = await axios.get(`${API_URL}/api/customers/me/subscriptions`, {
-        headers: { Authorization: `Bearer ${session.token}` }
-      });
+      const res = await axios.get(
+        `${API_URL}/api/customers/me/subscriptions`,
+        { headers: { Authorization: `Bearer ${session.token}` } }
+      );
 
       session.subscriptions = res.data;
 
@@ -239,33 +320,29 @@ bot.on('message', async (msg) => {
     }
   }
 
-  // ========= USAGE =========
+  // =========================
+  // 📊 USAGE
+  // =========================
   if (text === '📊 استهلاك الباقة') {
     const subId = session.selectedSubscriptionId;
 
-    if (!subId) {
-      return bot.sendMessage(chatId, '❌ اختر اشتراك أولاً');
-    }
+    if (!subId) return bot.sendMessage(chatId, '❌ اختر اشتراك');
 
     try {
-      const res = await axios.get(`${API_URL}/api/customers/me/subscriptions`, {
-        headers: { Authorization: `Bearer ${session.token}` }
-      });
+      const res = await axios.get(
+        `${API_URL}/api/customers/me/subscriptions`,
+        { headers: { Authorization: `Bearer ${session.token}` } }
+      );
 
-      const subscription = res.data.find(s => s.subscriptionId == subId);
-
-      if (!subscription) {
-        return bot.sendMessage(chatId, '❌ الاشتراك غير موجود');
-      }
-
-      const usage = calculateUsage(subscription);
+      const s = res.data.find(x => x.subscriptionId == subId);
+      const usage = calculateUsage(s);
 
       return bot.sendMessage(chatId,
-`📊 استهلاك الباقة
+`📊 الاستخدام
 
-⬇️ المستخدم: ${usage.usedGB} GB
-📦 الكلي: ${usage.totalGB} GB
-🔋 المتبقي: ${usage.remainingGB} GB
+⬇️ ${usage.usedGB} GB
+📦 ${usage.totalGB} GB
+🔋 ${usage.remainingGB} GB
 📉 ${usage.percent}%`);
 
     } catch {
@@ -273,32 +350,41 @@ bot.on('message', async (msg) => {
     }
   }
 
-  // ========= STATUS =========
+  // =========================
+  // 📡 STATUS
+  // =========================
   if (text === '📡 حالة الاتصال') {
     const s = session.subscriptions?.[0];
+    if (!s) return bot.sendMessage(chatId, '❌ لا يوجد');
 
-    if (!s) return bot.sendMessage(chatId, '❌ لا يوجد اشتراك');
-
-    return bot.sendMessage(chatId, s.online ? '🟢 متصل' : '🔴 غير متصل');
+    return bot.sendMessage(chatId,
+s.online ? '🟢 متصل' : '🔴 غير متصل');
   }
 
-  // ========= EXTEND =========
+  // =========================
+  // 🔄 EXTEND
+  // =========================
   if (text === '🔄 تمديد الاشتراك') {
     const s = session.subscriptions?.[0];
     if (!s) return;
 
     try {
-      await axios.put(`${API_URL}/api/services/extend-expiry/${s.subscriptionId}`, {}, {
-        headers: { Authorization: `Bearer ${session.token}` }
-      });
+      await axios.put(
+        `${API_URL}/api/services/extend-expiry/${s.subscriptionId}`,
+        {},
+        { headers: { Authorization: `Bearer ${session.token}` } }
+      );
 
       return bot.sendMessage(chatId, '✅ تم التمديد');
+
     } catch {
       return bot.sendMessage(chatId, '❌ فشل');
     }
   }
 
-  // ========= CHARGE =========
+  // =========================
+  // 📦 CHARGE
+  // =========================
   if (text === '📦 شحن باقة') {
     const s = session.subscriptions?.[0];
     if (!s) return;
@@ -311,49 +397,17 @@ bot.on('message', async (msg) => {
       );
 
       return bot.sendMessage(chatId, '✅ تم الشحن');
+
     } catch {
       return bot.sendMessage(chatId, '❌ فشل');
     }
   }
 
- // ☎️ الدعم الفني
-  if (text === '☎️ الدعم الفني') {
-    return bot.sendMessage(chatId, `
-☎️ الدعم الفني:
-
-📞 099999999
-📞 098888888
-
-🕐 متاح 24/7
-`);
-    
-  }
-
-  // 💳 طرق الدفع
-  if (text === '💳 طرق الدفع') {
-    return bot.sendMessage(chatId, `
-💳 طرق الدفع:
-
-1. نقاط البيع
-2. شام كاش
-3. تحويل بنكي
-`);
-    
-  }
-
 });
+
 // =========================
-// 🌐 SERVER
+// 🚀 SERVER
 // =========================
-app.post(`/webhook/${TOKEN}`, (req, res) => {
-  bot.processUpdate(req.body);
-  res.sendStatus(200);
-});
-
-app.get('/', (req, res) => {
-  res.send('Bot running ✅');
-});
-
 app.listen(PORT, async () => {
   console.log(`🚀 Running on ${PORT}`);
 
@@ -361,7 +415,7 @@ app.listen(PORT, async () => {
 
   try {
     await bot.setWebHook(webhookUrl);
-    console.log(`✅ Webhook: ${webhookUrl}`);
+    console.log(`✅ Webhook set`);
   } catch (e) {
     console.error(e.message);
   }
