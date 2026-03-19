@@ -2,7 +2,6 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
-
 const TOKEN = process.env.TELEGRAM_TOKEN;
 const API_URL = process.env.API_URL || 'https://api.alfateh.cloudtech-it.com';
 const PORT = process.env.PORT || 5000;
@@ -12,7 +11,7 @@ const webhookUrl = `https://alfatehisp-boot-telegram.onrender.com/webhook/${TOKE
 const app = express();
 app.use(bodyParser.json());
 
-app.post(`/webhook/${TOKEN}`, (req, res) => {
+app.post(`/webhookUrl/${TOKEN}`, (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
