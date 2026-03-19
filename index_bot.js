@@ -174,9 +174,45 @@ bot.on('message', async (msg) => {
   // ========= BALANCE =========
   if (text === '💰 الرصيد') {
     const user = await getUserInfo(session.token);
-    return bot.sendMessage(chatId, `💰 ${user.balance}`);
+
+    return bot.sendMessage(chatId,
+`👤 ${user.fullName}
+💰  الرصيد: ${user.balance}`);
   }
 
+  // =========================
+  // 📄 TRANSACTIONS
+  // =========================
+  if (text === '📄 الفواتير') {
+    try {
+      const res = await axios.get(
+        `${API_URL}/api/customers/me/transactions?page=0&size=5`,
+        { headers: { Authorization: `Bearer ${session.token}` } }
+      );
+
+      const list = res.data?.content || [];
+
+      if (!list.length) {
+        return bot.sendMessage(chatId, '📄 لا يوجد فواتير');
+      }
+
+      let msg = '📄 آخر الفواتير:\n\n';
+
+      list.forEach(tx => {
+        const date = new Date(tx.trxDate);
+
+        msg += `🧾 #${tx.trxNo}\n`;
+        msg += `💰 ${tx.amount} ${tx.Currency}\n`;
+        msg += `📅 ${date.toLocaleString()}\n`;
+        msg += `----------------\n`;
+      });
+
+      return bot.sendMessage(chatId, msg);
+
+    } catch {
+      return bot.sendMessage(chatId, '❌ خطأ في جلب الفواتير');
+    }
+  }
   // ========= SUBSCRIPTIONS =========
   if (text === '📶 الاشتراكات') {
     try {
@@ -280,7 +316,32 @@ bot.on('message', async (msg) => {
     }
   }
 });
+ // ☎️ الدعم الفني
+  if (text === '☎️ الدعم الفني') {
+    return bot.sendMessage(chatId, `
+☎️ الدعم الفني:
 
+📞 099999999
+📞 098888888
+
+🕐 متاح 24/7
+`);
+    
+  }
+
+  // 💳 طرق الدفع
+  if (text === '💳 طرق الدفع') {
+    return bot.sendMessage(chatId, `
+💳 طرق الدفع:
+
+1. نقاط البيع
+2. شام كاش
+3. تحويل بنكي
+`);
+    
+  }
+
+});
 // =========================
 // 🌐 SERVER
 // =========================
