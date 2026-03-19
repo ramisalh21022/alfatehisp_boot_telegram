@@ -164,7 +164,9 @@ bot.on('message', async (msg) => {
   // 🚀 START (V2)
   // =========================
   if (text === '/start') {
-    return bot.sendPhoto(chatId, LOGO_URL, {
+   await bot.sendPhoto(chatId,
+  'https://raw.githubusercontent.com/ramisalh21022/alfatehisp_boot_telegram/main/alfateh.png',
+  {
       caption: `
 ╔══════════════════════╗
    🌐 *ALFATEH ISP*
