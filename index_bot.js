@@ -1,19 +1,30 @@
+const express = require('express');
+const bodyParser = require('body-parser');
+const TelegramBot = require('node-telegram-bot-api');
+const axios = require('axios');
+
+const TOKEN = process.env.TELEGRAM_TOKEN;
+const API_URL = process.env.API_URL || 'https://api.alfateh.cloudtech-it.com';
+const PORT = process.env.PORT || 5000;
+
+const bot = new TelegramBot(TOKEN, { polling: false });
+const app = express();
+
+app.use(bodyParser.json());
+
+// =========================
+// 🔥 Sessions
+// =========================
+const sessions = new Map();
+
+// =========================
+// 📊 Helpers
 // =========================
 const octetsToGB = (octets = 0) => {
-  if (!octets) return 0;
-  return octets / 1024 / 1024 / 1024;
+  return octets ? octets / 1024 / 1024 / 1024 : 0;
 };
 
-const percentBar = (percent) => {
-  const total = 10;
-  const filled = Math.round((percent / 100) * total);
-  return '█'.repeat(filled) + '░'.repeat(total - filled);
-};
-
-// =========================
-// 📊 CALCULATE USAGE
-// =========================
-function calculateUsage(subscription) {
+const calculateUsage = (subscription) => {
   const downloadGB = octetsToGB(subscription.currentInputOctets);
   const uploadGB = octetsToGB(subscription.currentOutputOctets);
 
@@ -31,12 +42,12 @@ function calculateUsage(subscription) {
     usedGB: usedGB.toFixed(2),
     totalGB: totalGB.toFixed(2),
     remainingGB: remainingGB.toFixed(2),
-    percent: percent.toFixed(1)
+    percent: percent.toFixed(1),
   };
-}
+};
 
 // =========================
-// 🌐 API HELPERS
+// 🧠 API
 // =========================
 async function getUserInfo(token) {
   try {
@@ -54,13 +65,14 @@ async function getUserInfo(token) {
         ? `${accounts.data[0].balance} ${accounts.data[0].currency}`
         : '—'
     };
+
   } catch {
     return { fullName: 'غير معروف', balance: '—' };
   }
 }
 
 // =========================
-// 🧾 MAIN MENU
+// 🎛️ Menu
 // =========================
 async function showMainMenu(chatId, session) {
   const user = await getUserInfo(session.token);
@@ -88,6 +100,20 @@ async function showMainMenu(chatId, session) {
 }
 
 // =========================
+// 🔄 CALLBACK (اختياري)
+// =========================
+bot.on('callback_query', (q) => {
+  const chatId = q.message.chat.id;
+  const session = sessions.get(chatId);
+  if (!session) return;
+
+  if (q.data.startsWith('select_sub_')) {
+    session.selectedSubscriptionId = q.data.split('_')[2];
+    bot.sendMessage(chatId, `✅ تم اختيار الاشتراك`);
+  }
+});
+
+// =========================
 // 📩 MESSAGE HANDLER
 // =========================
 bot.on('message', async (msg) => {
@@ -95,37 +121,31 @@ bot.on('message', async (msg) => {
   const text = msg.text;
 
   if (!sessions.has(chatId)) {
-    sessions.set(chatId, {});
+    sessions.set(chatId, { step: null });
   }
 
   const session = sessions.get(chatId);
 
-  // =========================
-  // START
-  // =========================
+  // ========= START =========
   if (text === '/start') {
-    session.step = null;
-
-    return bot.sendMessage(chatId, '👋 أهلاً بك', {
+    return bot.sendMessage(chatId, '👋 أهلاً بك\n\n🔐 تسجيل الدخول', {
       reply_markup: {
-        keyboard: [['🔐 تسجيل الدخول']],
+        keyboard: [[{ text: '🔐 تسجيل الدخول' }]],
         resize_keyboard: true
       }
     });
   }
 
-  // =========================
-  // LOGIN FLOW
-  // =========================
+  // ========= LOGIN =========
   if (text === '🔐 تسجيل الدخول') {
     session.step = 'username';
-    return bot.sendMessage(chatId, '👤 أدخل اسم المستخدم:');
+    return bot.sendMessage(chatId, '👤 اسم المستخدم:');
   }
 
   if (session.step === 'username') {
     session.username = text;
     session.step = 'password';
-    return bot.sendMessage(chatId, '🔑 أدخل كلمة المرور:');
+    return bot.sendMessage(chatId, '🔑 كلمة المرور:');
   }
 
   if (session.step === 'password') {
@@ -137,7 +157,7 @@ bot.on('message', async (msg) => {
       });
 
       session.token = res.data.accessToken;
-      session.step = 'logged';
+      session.step = null;
 
       await bot.sendMessage(chatId, '✅ تم تسجيل الدخول');
       return showMainMenu(chatId, session);
@@ -147,54 +167,43 @@ bot.on('message', async (msg) => {
     }
   }
 
-  // =========================
-  // PROTECTION
-  // =========================
   if (!session.token) {
-    return bot.sendMessage(chatId, '⚠️ سجل دخول أولاً /start');
+    return bot.sendMessage(chatId, '⚠️ سجل الدخول أولاً');
   }
 
-  // =========================
-  // BALANCE
-  // =========================
+  // ========= BALANCE =========
   if (text === '💰 الرصيد') {
     const user = await getUserInfo(session.token);
-
-    return bot.sendMessage(chatId,
-`👤 ${user.fullName}
-💰 ${user.balance}`);
+    return bot.sendMessage(chatId, `💰 ${user.balance}`);
   }
 
-  // =========================
-  // SUBSCRIPTIONS
-  // =========================
+  // ========= SUBSCRIPTIONS =========
   if (text === '📶 الاشتراكات') {
-    const res = await axios.get(
-      `${API_URL}/api/customers/me/subscriptions`,
-      { headers: { Authorization: `Bearer ${session.token}` } }
-    );
+    try {
+      const res = await axios.get(`${API_URL}/api/customers/me/subscriptions`, {
+        headers: { Authorization: `Bearer ${session.token}` }
+      });
 
-    session.subscriptions = res.data;
+      session.subscriptions = res.data;
 
-    // اختيار تلقائي
-    if (!session.selectedSubscriptionId && res.data.length > 0) {
-      session.selectedSubscriptionId = res.data[0].subscriptionId;
+      if (res.data.length > 0 && !session.selectedSubscriptionId) {
+        session.selectedSubscriptionId = res.data[0].subscriptionId;
+      }
+
+      let msg = '📶 الاشتراكات:\n\n';
+
+      res.data.forEach(s => {
+        msg += `📶 ${s.serviceName}\n👤 ${s.username}\n${s.online ? '🟢' : '🔴'}\n\n`;
+      });
+
+      return bot.sendMessage(chatId, msg);
+
+    } catch {
+      return bot.sendMessage(chatId, '❌ خطأ');
     }
-
-    let msg = '📶 الاشتراكات:\n\n';
-
-    res.data.forEach(s => {
-      msg += `📶 ${s.serviceName}\n`;
-      msg += `👤 ${s.username}\n`;
-      msg += `📊 ${s.online ? '🟢' : '🔴'}\n\n`;
-    });
-
-    return bot.sendMessage(chatId, msg);
   }
 
-  // =========================
-  // USAGE
-  // =========================
+  // ========= USAGE =========
   if (text === '📊 استهلاك الباقة') {
     const subId = session.selectedSubscriptionId;
 
@@ -202,92 +211,97 @@ bot.on('message', async (msg) => {
       return bot.sendMessage(chatId, '❌ اختر اشتراك أولاً');
     }
 
-    const res = await axios.get(
-      `${API_URL}/api/customers/me/subscriptions`,
-      { headers: { Authorization: `Bearer ${session.token}` } }
-    );
+    try {
+      const res = await axios.get(`${API_URL}/api/customers/me/subscriptions`, {
+        headers: { Authorization: `Bearer ${session.token}` }
+      });
 
-    const sub = res.data.find(s => s.subscriptionId == subId);
+      const subscription = res.data.find(s => s.subscriptionId == subId);
 
-    if (!sub) return bot.sendMessage(chatId, '❌ اشتراك غير موجود');
+      if (!subscription) {
+        return bot.sendMessage(chatId, '❌ الاشتراك غير موجود');
+      }
 
-    const usage = calculateUsage(sub);
+      const usage = calculateUsage(subscription);
 
-    return bot.sendMessage(chatId,
+      return bot.sendMessage(chatId,
 `📊 استهلاك الباقة
 
-⬇️ ${usage.usedGB} GB
-📦 ${usage.totalGB} GB
-🔋 ${usage.remainingGB} GB
-📉 ${percentBar(usage.percent)} ${usage.percent}%`);
+⬇️ المستخدم: ${usage.usedGB} GB
+📦 الكلي: ${usage.totalGB} GB
+🔋 المتبقي: ${usage.remainingGB} GB
+📉 ${usage.percent}%`);
+
+    } catch {
+      return bot.sendMessage(chatId, '❌ خطأ');
+    }
   }
 
-  // =========================
-  // STATUS
-  // =========================
+  // ========= STATUS =========
   if (text === '📡 حالة الاتصال') {
-    const subId = session.selectedSubscriptionId;
+    const s = session.subscriptions?.[0];
 
-    if (!subId) return bot.sendMessage(chatId, '❌ اختر اشتراك');
+    if (!s) return bot.sendMessage(chatId, '❌ لا يوجد اشتراك');
 
-    return bot.sendMessage(chatId, `📡 ${subId}`);
+    return bot.sendMessage(chatId, s.online ? '🟢 متصل' : '🔴 غير متصل');
   }
 
-  // =========================
-  // EXTEND
-  // =========================
+  // ========= EXTEND =========
   if (text === '🔄 تمديد الاشتراك') {
-    const subId = session.selectedSubscriptionId;
+    const s = session.subscriptions?.[0];
+    if (!s) return;
 
-    if (!subId) return bot.sendMessage(chatId, '❌ اختر اشتراك');
+    try {
+      await axios.put(`${API_URL}/api/services/extend-expiry/${s.subscriptionId}`, {}, {
+        headers: { Authorization: `Bearer ${session.token}` }
+      });
 
-    await axios.put(
-      `${API_URL}/api/services/extend-expiry/${subId}`,
-      {},
-      { headers: { Authorization: `Bearer ${session.token}` } }
-    );
-
-    return bot.sendMessage(chatId, '✅ تم التمديد');
+      return bot.sendMessage(chatId, '✅ تم التمديد');
+    } catch {
+      return bot.sendMessage(chatId, '❌ فشل');
+    }
   }
 
-  // =========================
-  // CHARGE
-  // =========================
+  // ========= CHARGE =========
   if (text === '📦 شحن باقة') {
-    const subId = session.selectedSubscriptionId;
+    const s = session.subscriptions?.[0];
+    if (!s) return;
 
-    if (!subId) return bot.sendMessage(chatId, '❌ اختر اشتراك');
+    try {
+      await axios.post(
+        `${API_URL}/api/services/charge-service-type/${s.subscriptionId}/1`,
+        {},
+        { headers: { Authorization: `Bearer ${session.token}` } }
+      );
 
-    const serviceTypeId = 1;
-
-    await axios.post(
-      `${API_URL}/api/services/charge-service-type/${subId}/${serviceTypeId}`,
-      {},
-      { headers: { Authorization: `Bearer ${session.token}` } }
-    );
-
-    return bot.sendMessage(chatId, '✅ تم الشحن');
-  }
-
-  // =========================
-  // SUPPORT
-  // =========================
-  if (text === '☎️ الدعم الفني') {
-    return bot.sendMessage(chatId, '📞 099999999');
-  }
-
-  // =========================
-  // PAY
-  // =========================
-  if (text === '💳 طرق الدفع') {
-    return bot.sendMessage(chatId, '💳 شام كاش / تحويل / نقاط بيع');
+      return bot.sendMessage(chatId, '✅ تم الشحن');
+    } catch {
+      return bot.sendMessage(chatId, '❌ فشل');
+    }
   }
 });
 
 // =========================
-// 🌐 WEBHOOK
+// 🌐 SERVER
 // =========================
 app.post(`/webhook/${TOKEN}`, (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
+});
+
+app.get('/', (req, res) => {
+  res.send('Bot running ✅');
+});
+
+app.listen(PORT, async () => {
+  console.log(`🚀 Running on ${PORT}`);
+
+  const webhookUrl = `${process.env.RENDER_EXTERNAL_URL}/webhook/${TOKEN}`;
+
+  try {
+    await bot.setWebHook(webhookUrl);
+    console.log(`✅ Webhook: ${webhookUrl}`);
+  } catch (e) {
+    console.error(e.message);
+  }
 });
