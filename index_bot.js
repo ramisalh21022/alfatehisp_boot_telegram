@@ -19,10 +19,44 @@ app.post(`/webhook/${TOKEN}`, (req, res) => {
 
 // 🔥 جلسات المستخدمين
 const sessions = new Map();
+// 🧠دالة جلب بيانات المستخدم
+async function getUserInfo(token) {
+  try {
+    const profile = await axios.get(`${API_URL}/api/customers/me`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
 
+    const accounts = await axios.get(`${API_URL}/api/customers/me/accounts`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+
+    return {
+      fullName: profile.data.fullName || '—',
+      balance: accounts.data?.[0]
+        ? `${accounts.data[0].balance} ${accounts.data[0].currency}`
+        : '—'
+    };
+
+  } catch (err) {
+    return {
+      fullName: 'غير معروف',
+      balance: '—'
+    };
+  }
+}
 // 🧠 دالة عرض القائمة الرئيسية
-function showMainMenu(chatId) {
-  bot.sendMessage(chatId, '📡 لوحة التحكم\nاختر الخدمة:', {
+async function showMainMenu(chatId, session) {
+  const user = await getUserInfo(session.token);
+
+  const header = `
+📡 *ALFATEH ISP*
+
+👤 ${user.fullName}
+💰 الرصيد: ${user.balance}
+`;
+
+  bot.sendMessage(chatId, header + '\n📊 اختر الخدمة:', {
+    parse_mode: 'Markdown',
     reply_markup: {
       keyboard: [
         ['💰 الرصيد', '📄 الفواتير'],
@@ -85,7 +119,7 @@ bot.on('message', async (msg) => {
       session.step = 'dashboard';
 
       await bot.sendMessage(chatId, '✅ تم تسجيل الدخول بنجاح');
-      return showMainMenu(chatId);
+      return showMainMenu(chatId, session);
 
     } catch (err) {
       return bot.sendMessage(chatId, '❌ فشل تسجيل الدخول');
@@ -102,36 +136,43 @@ bot.on('message', async (msg) => {
   // 💰 الرصيد
   if (text === '💰 الرصيد') {
     return bot.sendMessage(chatId, '💰 جاري جلب الرصيد...');
+    return showMainMenu(chatId, session);
   }
 
   // 📄 الفواتير
   if (text === '📄 الفواتير') {
     return bot.sendMessage(chatId, '📄 جاري جلب الفواتير...');
+    return showMainMenu(chatId, session);
   }
 
   // 📶 الاشتراكات
   if (text === '📶 الاشتراكات') {
     return bot.sendMessage(chatId, '📶 جاري جلب الاشتراكات...');
+    return showMainMenu(chatId, session);
   }
 
   // 🔄 تمديد الاشتراك
   if (text === '🔄 تمديد الاشتراك') {
     return bot.sendMessage(chatId, '🔄 اختر الاشتراك للتمديد...');
+    return showMainMenu(chatId, session);
   }
 
   // 📦 شحن باقة
   if (text === '📦 شحن باقة') {
     return bot.sendMessage(chatId, '📦 اختر الباقة للشحن...');
+    return showMainMenu(chatId, session);
   }
 
   // 📊 استهلاك الباقة
   if (text === '📊 استهلاك الباقة') {
     return bot.sendMessage(chatId, '📊 جاري حساب الاستهلاك...');
+    return showMainMenu(chatId, session);
   }
 
   // 📡 حالة الاتصال
   if (text === '📡 حالة الاتصال') {
     return bot.sendMessage(chatId, '📡 جاري التحقق من الحالة...');
+    return showMainMenu(chatId, session);
   }
 
   // ☎️ الدعم الفني
@@ -144,6 +185,7 @@ bot.on('message', async (msg) => {
 
 🕐 متاح 24/7
 `);
+    return showMainMenu(chatId, session);
   }
 
   // 💳 طرق الدفع
@@ -155,6 +197,7 @@ bot.on('message', async (msg) => {
 2. شام كاش
 3. تحويل بنكي
 `);
+    return showMainMenu(chatId, session);
   }
 
 });
