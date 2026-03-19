@@ -16,19 +16,7 @@ app.post(`/webhook/${TOKEN}`, (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
-app.listen(PORT, async () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log("Webhook URL:", webhookUrl);
 
-  try {
-    await bot.deleteWebHook(); // مهم
-    await bot.setWebHook(webhookUrl);
-
-    console.log("✅ Webhook set successfully");
-  } catch (err) {
-    console.error("❌ Webhook error:", err.message);
-  }
-});
 
 // 🔥 جلسات المستخدمين
 const sessions = new Map();
