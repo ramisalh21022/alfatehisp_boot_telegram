@@ -13,9 +13,10 @@ const TOKEN = process.env.TELEGRAM_TOKEN;
 const API_URL = process.env.API_URL || 'https://api.alfateh.cloudtech-it.com';
 const PORT = process.env.PORT || 5000;
 
+const LOGO_URL = 'https://raw.githubusercontent.com/ramisalh21022/alfatehisp_boot_telegram/main/alfateh.png';
+
 const bot = new TelegramBot(TOKEN, { polling: false });
 const app = express();
-
 
 app.use(bodyParser.json());
 
@@ -97,43 +98,68 @@ async function getUserInfo(token) {
 }
 
 // =========================
-// 🎛️ MAIN MENU
+// 🎨 UI: WELCOME
 // =========================
-async function showMainMenu(chatId, session) {
-  const user = await getUserInfo(session.token);
-
- await bot.sendPhoto(chatId,
-  'https://raw.githubusercontent.com/ramisalh21022/alfatehisp_boot_telegram/main/alfateh.png',
-  {
-    caption: `
+async function showWelcome(chatId, session) {
+  const caption = `
 ╔══════════════════════╗
    🌐 *ALFATEH ISP*
 ╚══════════════════════╝
 
-👋 أهلاً بك في مزود الفتح
+${t(session, 'welcome')}
 
-📍 العنوان:
-دمشق - سوريا
+${t(session, 'address')}:
+Damascus - Syria
 
-🏪 نقاط البيع:
-• مركز المدينة
-• المزة
+${t(session, 'pos')}:
+• City Center
+• Mazzeh
 
-📞 التواصل:
-099999999
-098888888
-`,
+${t(session, 'contact')}:
+📞 099999999
+📞 098888888
+`;
+
+  await bot.sendPhoto(chatId, LOGO_URL, {
+    caption,
     parse_mode: 'Markdown',
     reply_markup: {
       keyboard: [
-        ['🔐 تسجيل الدخول'],
-        ['🆔 طلب الرقم الوطني'],
+        [t(session, 'login')],
+        [t(session, 'nationalId')],
         ['🌐 العربية', '🌐 English']
       ],
       resize_keyboard: true
     }
-  }
-);
+  });
+}
+
+// =========================
+// 🎛️ UI: MAIN MENU
+// =========================
+async function showMainMenu(chatId, session) {
+  const user = await getUserInfo(session.token);
+
+  return bot.sendMessage(chatId,
+`📡 *ALFATEH ISP*
+
+👤 ${user.fullName}
+💰 ${user.balance}
+`,
+    {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        keyboard: [
+          ['💰 الرصيد', '📄 الفواتير'],
+          ['📶 الاشتراكات', '📡 حالة الاتصال'],
+          ['🔄 تمديد الاشتراك', '📦 شحن باقة'],
+          ['📊 استهلاك الباقة'],
+          ['☎️ الدعم الفني', '💳 طرق الدفع']
+        ],
+        resize_keyboard: true
+      }
+    }
+  );
 }
 
 // =========================
@@ -150,7 +176,6 @@ app.get('/', (_, res) => res.send('Bot running ✅'));
 // 📩 MESSAGE HANDLER
 // =========================
 bot.on('message', async (msg) => {
-
   const chatId = msg.chat.id;
   const text = msg.text;
 
@@ -161,55 +186,118 @@ bot.on('message', async (msg) => {
   const session = sessions.get(chatId);
 
   // =========================
-  // 🚀 START (V2)
+  // 🚀 START
   // =========================
   if (text === '/start') {
-   await bot.sendPhoto(chatId,
-  'https://raw.githubusercontent.com/ramisalh21022/alfatehisp_boot_telegram/main/alfateh.png',
-  {
-      caption: `
-╔══════════════════════╗
-   🌐 *ALFATEH ISP*
-╚══════════════════════╝
-
-${t(session, 'welcome')}
-
-${t(session, 'address')}:
-دمشق - سوريا
-
-${t(session, 'pos')}:
-• مركز المدينة
-• المزة
-
-${t(session, 'contact')}:
-📞 099999999
-📞 098888888
-`,
-      parse_mode: 'Markdown',
-      reply_markup: {
-        keyboard: [
-          [t(session, 'login')],
-          [t(session, 'nationalId')],
-          ['🌐 العربية', '🌐 English']
-        ],
-        resize_keyboard: true
-      }
-    });
+    return showWelcome(chatId, session);
   }
 
   // =========================
-  // 🌐 LANGUAGE
+  // 🌐 LANGUAGE SWITCH
   // =========================
   if (text === '🌐 العربية') {
     session.lang = 'ar';
-    return bot.sendMessage(chatId, '✅ تم التبديل للعربية');
+    return session.token
+      ? showMainMenu(chatId, session)
+      : showWelcome(chatId, session);
   }
 
   if (text === '🌐 English') {
     session.lang = 'en';
-    return bot.sendMessage(chatId, '✅ Switched to English');
+    return session.token
+      ? showMainMenu(chatId, session)
+      : showWelcome(chatId, session);
   }
 
+  // =========================
+  // 🔐 LOGIN FLOW
+  // =========================
+  if (text === t(session, 'login')) {
+    session.step = 'username';
+    return bot.sendMessage(chatId, '👤 Username:');
+  }
+
+  if (session.step === 'username') {
+    session.username = text;
+    session.step = 'password';
+    return bot.sendMessage(chatId, '🔑 Password:');
+  }
+
+  if (session.step === 'password') {
+    try {
+      const res = await axios.post(`${API_URL}/api/auth/login`, {
+        username: session.username,
+        password: text,
+        deviceId: chatId.toString()
+      });
+
+      session.token = res.data.accessToken;
+      session.step = null;
+
+      await bot.sendMessage(chatId, '✅ Login successful');
+      return showMainMenu(chatId, session);
+
+    } catch {
+      return bot.sendMessage(chatId, '❌ Login failed');
+    }
+  }
+
+  // =========================
+  // 🔒 PROTECTION
+  // =========================
+  if (!session.token) {
+    return bot.sendMessage(chatId, '⚠️ Please login first');
+  }
+
+  // =========================
+  // 📊 USAGE
+  // =========================
+  if (text === '📊 استهلاك الباقة') {
+    if (!session.selectedSubscriptionId) {
+      return bot.sendMessage(chatId, '❌ اختر اشتراك أولاً');
+    }
+
+    try {
+      const res = await axios.get(`${API_URL}/api/customers/me/subscriptions`, {
+        headers: { Authorization: `Bearer ${session.token}` }
+      });
+
+      const sub = res.data.find(s => s.subscriptionId == session.selectedSubscriptionId);
+
+      if (!sub) return bot.sendMessage(chatId, '❌ غير موجود');
+
+      const usage = calculateUsage(sub);
+
+      return bot.sendMessage(chatId,
+`📊 Usage
+
+⬇️ ${usage.usedGB} GB
+📦 ${usage.totalGB} GB
+🔋 ${usage.remainingGB} GB
+📉 ${usage.percent}%`);
+
+    } catch {
+      return bot.sendMessage(chatId, '❌ Error');
+    }
+  }
+
+});
+
+// =========================
+// 🌐 SERVER
+// =========================
+app.listen(PORT, async () => {
+  console.log(`🚀 Running on ${PORT}`);
+
+  const webhookUrl = `${process.env.RENDER_EXTERNAL_URL}/webhook/${TOKEN}`;
+
+  try {
+    await bot.setWebHook(webhookUrl);
+    console.log(`✅ Webhook set`);
+  } catch (e) {
+    console.error(e.message);
+  }
+});
   // =========================
   // 🔐 LOGIN
   // =========================
